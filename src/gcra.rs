@@ -1,6 +1,6 @@
 //! Implementation of generic cell rate algorithm(https://en.wikipedia.org/wiki/Generic_cell_rate_algorithm)
 
-use std::{sync::atomic::AtomicU64, time::Duration};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 
@@ -118,6 +118,29 @@ where
             }
         }
     }
+}
+
+pub struct VirtualScheduling<C = SystemClock> {
+    clock: C,
+    state: Mutex<State>,
+    burst: u64,
+    rate: u64,
+}
+
+impl VirtualScheduling {
+    pub fn builder() -> VirtualSchedulingBuilder<SystemClock> {
+        VirtualSchedulingBuilder {
+            clock: SystemClock,
+            burst: 0,
+            rate: 0,
+        }
+    }
+}
+
+pub struct VirtualSchedulingBuilder<C> {
+    clock: C,
+    burst: u64,
+    rate: u64,
 }
 
 #[cfg(test)]
