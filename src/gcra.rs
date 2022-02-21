@@ -122,25 +122,98 @@ where
 
 pub struct VirtualScheduling<C = SystemClock> {
     clock: C,
-    state: Mutex<State>,
-    burst: u64,
-    rate: u64,
+    tat: Mutex<u64>, // theorical arrival time
+    tolerance: u64,
+    gap: u64,
 }
 
 impl VirtualScheduling {
     pub fn builder() -> VirtualSchedulingBuilder<SystemClock> {
         VirtualSchedulingBuilder {
             clock: SystemClock,
-            burst: 0,
-            rate: 0,
+            tolerance: 0,
+            gap: 0,
         }
+    }
+}
+
+impl<C> Policy for VirtualScheduling<C>
+where
+    C: Clock,
+{
+    fn pass(&self) -> bool {
+        let now = self.clock.now();
+        let mut tat = self.tat.lock();
+        if now + self.tolerance < *tat {
+            false
+        } else {
+            *tat = std::cmp::max(*tat, now) + self.gap;
+            true
+        }
+    }
+}
+
+impl<C> VirtualScheduling<C>
+where
+    C: Clock,
+{
+    fn decorate<'a, Req, Resp>(
+        &'a self,
+        mut f: impl FnMut(Req) -> Resp + 'a,
+    ) -> impl FnMut(Req) -> Result<Resp, Req> + 'a {
+        move |req| {
+            if self.pass() {
+                Ok(f(req))
+            } else {
+                Err(req)
+            }
+        }
+    }
+}
+
+impl VirtualScheduling<MockClock> {
+    pub fn forward(&mut self, dur: Duration) {
+        self.clock.forward(dur);
+    }
+
+    pub fn backward(&mut self, dur: Duration) {
+        self.clock.backward(dur);
     }
 }
 
 pub struct VirtualSchedulingBuilder<C> {
     clock: C,
-    burst: u64,
-    rate: u64,
+    tolerance: u64,
+    gap: u64,
+}
+
+impl<C> VirtualSchedulingBuilder<C> {
+    pub fn clock<NC>(self, clock: NC) -> VirtualSchedulingBuilder<NC> {
+        VirtualSchedulingBuilder {
+            clock,
+            tolerance: self.tolerance,
+            gap: self.gap,
+        }
+    }
+
+    pub fn tolerance(mut self, tolerance: Duration) -> Self {
+        self.tolerance = tolerance.as_millis() as u64;
+        self
+    }
+
+    pub fn gap(mut self, gap: Duration) -> Self {
+        self.gap = gap.as_millis() as u64;
+        self
+    }
+
+    pub fn build(self) -> VirtualScheduling<C> {
+        VirtualScheduling {
+            clock: self.clock,
+            tat: Mutex::new(0),
+            tolerance: self.tolerance,
+            gap: self.gap,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -227,5 +300,42 @@ mod tests {
         assert!(f(()).is_err());
         drop(f);
         assert_eq!(v, 20);
+    }
+
+    #[test]
+    fn test_virtual_schuduling_steady() {
+        let mut rl = VirtualScheduling::builder()
+            .clock(MockClock::new_now())
+            .tolerance(Duration::from_secs(0))
+            .gap(Duration::from_millis(100))
+            .build();
+
+        for _ in 0..10 {
+            for _ in 0..10 {
+                rl.forward(Duration::from_millis(100));
+                assert!(rl.pass());
+            }
+            assert!(!rl.pass());
+            rl.forward(Duration::from_secs(1));
+        }
+    }
+
+    #[test]
+    fn test_virtual_schuduling_tolerance() {
+        let mut rl = VirtualScheduling::builder()
+            .clock(MockClock::new_now())
+            .tolerance(Duration::from_millis(500))
+            .gap(Duration::from_secs(1))
+            .build();
+
+        assert!(rl.pass());
+        rl.forward(Duration::from_millis(500));
+        assert!(rl.pass());
+        rl.forward(Duration::from_millis(500));
+        assert!(!rl.pass());
+        rl.forward(Duration::from_millis(500));
+        assert!(rl.pass());
+        rl.forward(Duration::from_secs(1));
+        assert!(rl.pass());
     }
 }
