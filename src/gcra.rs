@@ -23,12 +23,6 @@ struct State {
 }
 
 impl LeakyBucket<SystemClock> {
-    pub fn new() -> Self {
-        Self::builder().build()
-    }
-}
-
-impl LeakyBucket<SystemClock> {
     pub fn builder() -> LeakyBucketBuilder<SystemClock> {
         LeakyBucketBuilder {
             clock: SystemClock,
@@ -106,7 +100,7 @@ impl<C> LeakyBucket<C>
 where
     C: Clock,
 {
-    fn decorate<'a, Req, Resp>(
+    pub fn decorate<'a, Req, Resp>(
         &'a self,
         mut f: impl FnMut(Req) -> Resp + 'a,
     ) -> impl FnMut(Req) -> Result<Resp, Req> + 'a {
@@ -157,7 +151,7 @@ impl<C> VirtualScheduling<C>
 where
     C: Clock,
 {
-    fn decorate<'a, Req, Resp>(
+    pub fn decorate<'a, Req, Resp>(
         &'a self,
         mut f: impl FnMut(Req) -> Resp + 'a,
     ) -> impl FnMut(Req) -> Result<Resp, Req> + 'a {
